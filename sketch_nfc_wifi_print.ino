@@ -8,51 +8,52 @@
 #include "NfcAdapter.h"
 #include "med_logo.h"
 
-int printer_RX_Pin = 6;  // This is the green wire
-int printer_TX_Pin = 7;  // This is the yellow wire
+#define PRINTER_RX 6  // This is the green wire
+#define PRINTER_TX 7  // This is the yellow wire
 
-int buzz_pin = 11; // BUZZZ
+#define BUZZER 11 // BUZZZ
+#define NFC_TIMEOUT 20000
 
-PN532_SPI pn532spi(SPI, 10);
+#define NFC 10
+
+PN532_SPI pn532spi(SPI, NFC);
 SNEP nfc(pn532spi);
 uint8_t ndefBuf[128];
 uint8_t recordBuf[128];
 
 NfcAdapter nfc_adapter = NfcAdapter(pn532spi); // create an NFC adapter object
 
-Adafruit_Thermal printer(printer_RX_Pin, printer_TX_Pin);
+Adafruit_Thermal printer(PRINTER_RX, PRINTER_TX);
+
+String mailMsg;
 
 void makeNoise()
 {
   // we are on
-  digitalWrite(buzz_pin, HIGH);
+  digitalWrite(BUZZER, HIGH);
   delay(500);
-  digitalWrite(buzz_pin, LOW);
+  digitalWrite(BUZZER, LOW);
 }
 
 
 void setup() {
-  pinMode(13, OUTPUT);
-  digitalWrite(13, LOW);
   // Initialize Bridge and Mailbox
   Bridge.begin();
   Mailbox.begin();
-  digitalWrite(13, HIGH);
   
   // Initialize Printer
   printer.begin();
   printer.setSize('L');
-  printer.println("I am Configured");
+  //Version 1.0 of the Arduino IDE introduced the F() syntax for storing strings in flash memory rather than RAM
+  printer.println(F("I am Configured"));
   printer.feed(2);
   printer.printBitmap(med_logo_width, med_logo_height, med_logo_data);
   
   printer.feed(5);
-  // Init serial
-  Serial.begin(9600);
   makeNoise();
 }
 
-void printerPrint(char* print_buffer) {
+void printerPrint(const char* print_buffer) {
   printer.printBitmap(med_logo_width, med_logo_height, med_logo_data);
   printer.feed(2);
   printer.setSize('M');
@@ -65,21 +66,14 @@ String hex2char(const byte * data, const uint32_t numBytes)
 {
   uint32_t szPos;
   String result;
-  result = result + String("  ");
-  for (szPos=0; szPos < numBytes; szPos++) 
-  {
-    if (data[szPos] <= 0x1F)
-      result = result + String("");
-    else
-      result = result + String((char)data[szPos]);
+  result.concat(' '); //Concat characters http://arduino.cc/en/Reference/StringConcat
+  for (szPos=0; szPos < numBytes; szPos++) {
+    if (data[szPos] > 0x1F) result.concat((char)data[szPos]);
   }
-  result = result + String("");
   return result;
 }
 
 void checkMailbox() {
-  String message;
-  char charBuf[50];
   // if there is a message in the Mailbox
   if (Mailbox.messageAvailable())
   {
@@ -87,9 +81,8 @@ void checkMailbox() {
     // read all the messages present in the queue
     while (Mailbox.messageAvailable())
     {
-      Mailbox.readMessage(message);
-      message.toCharArray(charBuf, 50);
-      printerPrint(charBuf);
+      Mailbox.readMessage(mailMsg);
+      printerPrint(mailMsg.c_str()); //Convert string to char array http://arduino.cc/en/Reference/CStr
     }
   }
   return;
@@ -97,7 +90,7 @@ void checkMailbox() {
 
 void checkforNFC(){
     // nfc.read is a blocking function.. adding timeout
-    int msgSize = nfc.read(ndefBuf, sizeof(ndefBuf), 20000);
+    int msgSize = nfc.read(ndefBuf, sizeof(ndefBuf), NFC_TIMEOUT);
     if (msgSize > 0) {
         makeNoise();
         NdefMessage msg  = NdefMessage(ndefBuf, msgSize);
@@ -124,15 +117,11 @@ void checkRegularCard() {
         for (i=0; i<msg.getRecordCount(); i++)
         {
           NdefRecord tmp = msg.getRecord(i);
-          int record_length;
-          record_length = tmp.getPayloadLength();
+          int record_length = tmp.getPayloadLength();
           byte storage[record_length];
           tmp.getPayload(storage);
-          String respBuffer;
-          respBuffer = hex2char(storage, record_length);
-          char charBuf[100];
-          respBuffer.toCharArray(charBuf, 100);
-          printerPrint(charBuf);
+          String respBuffer = hex2char(storage, record_length);
+          printerPrint(respBuffer.c_str());
         }
         
     }
